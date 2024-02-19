@@ -4,6 +4,8 @@ const path = require("path");
 const http = require('http');
 const { createProxyMiddleware } = require('http-proxy-middleware');
 const { IPFS } = require('./src/scripts/ipfs');
+const { Configuration, OpenAIApi } = require("openai");
+
 
 const app = express();
 app.use(bodyParser.json());
@@ -11,6 +13,12 @@ require('dotenv').config("")
 
 const ipfs = new IPFS(process.env.PINATA_API_KEY, process.env.PINATA_API_SECRET);
 ipfs.testAuthentication();
+
+const configuration = new Configuration({
+  apiKey: process.env.OPENAI_API_KEY,
+});
+const openai = new OpenAIApi(configuration);
+
 
 app.use(express.static(path.join(__dirname, "build")));
 app.use(function(req, res, next) {
@@ -20,23 +28,27 @@ app.use(function(req, res, next) {
   next();
 });
 
-app.post("/v1/predictions", function(req, res){
-    res.setHeader('Content-Type', 'application/json');
-    res.end(JSON.stringify({ id: 1, status: "starting...", error: null }));
-});
-
-app.get("/v1/predictions/:id", function(req, res){
+app.post("/addIPFS", async function(req, res){
+    const result = await ipfs.addToIPFS(req.body.url, req.body.name);
     res.setHeader('Content-Type', 'application/json');
     res.end(JSON.stringify({ 
-      id: 1, 
-      status: 'succeded', 
-      error: null, 
-      output: ['https://replicate.delivery/pbxt/f4nlztv3uz1iFC4AEf2wBYQGTezdVeysvtZUtwfsvZOJDN6AC/out-0.png'],
+      result: result,
     }));
 });
 
-app.post("/addIPFS", async function(req, res){
-    const result = await ipfs.addToIPFS(req.body.url, req.body.name);
+app.post("/getPrediction", async function(req, res){
+    let result = "";
+    try {
+      const response = await openai.createImage({
+        prompt: req.body.prompt,
+        n: req.body.n,
+        size: req.body.size,
+      });
+      result = response.data.data[0].url;
+    } catch (e) {
+      console.error(e);
+    }
+
     res.setHeader('Content-Type', 'application/json');
     res.end(JSON.stringify({ 
       result: result,

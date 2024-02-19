@@ -1,9 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { MintModal } from "./MintModal";
+import { Modal } from "react-bootstrap";
 import { Input } from "./Input";
-import { predict } from "../scripts/replicate-api";
 import { ethers } from "ethers";
 import stableDiffusionNFT from "../assets/StableDiffusionNFT.json";
+import miningGif from "../assets/dogecoin-doge.gif";
+import "./Prediction.css";
 
 export function Prediction(props) {
   const CONTRACT_ADDRESS = "0x48aD17c98762060514d135E5CCa9A4451f488Fb6";
@@ -12,31 +14,30 @@ export function Prediction(props) {
   const [show, setShow] = useState(false);
   const [imgSrc, setImgSrc] = useState("");
   const [promptText, setPromptText] = useState("");
+  const [showMining, setShowMining] = useState(false);
 
   const getPrediction = async (prompt) => {
-    const input = {
-      prompt: prompt,
-      num_outputs: 1,
-      width: 768,
-      height: 768,
-      num_inference_steps: 50,
-      guidance_scale: 7.5,
-      scheduler: "DPMSolverMultistep",
-    };
-
     try {
-      let output = await predict(
-        `${process.env.REACT_APP_BASE_URL}${process.env.REACT_APP_API_PATH}`,
-        process.env.REACT_APP_API_KEY,
-        process.env.REACT_APP_MODEL_VERSION,
-        input
+      const resp = await fetch(
+        `${process.env.REACT_APP_BASE_URL}/getPrediction`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            prompt: prompt,
+            n: 1,
+            size: "512x512",
+          }),
+        }
       );
-      return output[0];
-    } catch (error) {
-      console.error(error);
+      const result = await resp.json();
+      return result["result"];
+    } catch (e) {
+      console.error(e);
       return "";
     }
-    return "";
   };
 
   const addToIPFS = async (url, name) => {
@@ -73,6 +74,9 @@ export function Prediction(props) {
         const { tokenId } = transferEvent.args;
 
         console.log("NFT minted: ", `${OPENSEA_LINK}/${tokenId.toString()}`);
+        alert(`NFT minted: ${OPENSEA_LINK}/${tokenId.toString()}`);
+        setShowMining(false);
+
         return tokenId;
       } else {
         console.log("Ethereum object doesn't exist!");
@@ -104,6 +108,37 @@ export function Prediction(props) {
     }
   };
 
+  const setupEventListners = async () => {
+    if (props.account !== "") {
+      console.log("setting up event listeners");
+      try {
+        const { ethereum } = window;
+
+        if (ethereum) {
+          const provider = new ethers.providers.Web3Provider(ethereum);
+          const signer = provider.getSigner();
+          const contract = new ethers.Contract(
+            CONTRACT_ADDRESS,
+            stableDiffusionNFT.abi,
+            signer
+          );
+
+          contract.on("NewNFTMinted", (from, tokenId) => {
+            alert(`NFT minted: ${OPENSEA_LINK}/${tokenId.toString()}`);
+          });
+        } else {
+          console.log("Ethereum object doesn't exist!");
+        }
+      } catch (error) {
+        console.log(error);
+      }
+    }
+  };
+
+  // useEffect(() => {
+  //   setupEventListners();
+  // });
+
   // Callbacks
 
   const handleOnCreate = (promptText) => {
@@ -113,21 +148,8 @@ export function Prediction(props) {
       const output = await getPrediction(promptText);
       console.log(output);
 
-      if(props.account !== ""){
-       
-        const nftNumber = await totalNFTs();
-        const nftName = `Stability AI #${nftNumber.toString()}`;
-        console.log("nftName: ", nftName);
-
-        const result = await addToIPFS(output, nftName);
-        console.log(result);
-
-        setImgSrc(result);
-        setPromptText(promptText);
-      }
-      else{
-        setImgSrc(output);
-      }
+      setImgSrc(output);
+      setPromptText(promptText);
     })();
   };
 
@@ -137,10 +159,19 @@ export function Prediction(props) {
   };
 
   const handleMint = () => {
-    // (async () => {
-      mintNFT(imgSrc, promptText);
-      handleToggle();
-    // })();
+    (async () => {
+      if (props.account !== "") {
+        setShowMining(true);
+        const nftNumber = await totalNFTs();
+        const nftName = `Stability AI #${nftNumber.toString()}`;
+        console.log("nftName: ", nftName);
+
+        const result = await addToIPFS(imgSrc, nftName);
+        console.log(result);
+        mintNFT(result, promptText);
+      }
+    })();
+    handleToggle();
   };
 
   return (
@@ -152,6 +183,15 @@ export function Prediction(props) {
         onMint={handleMint}
         disableMint={props.account === ""}
       />
+
+      <Modal className="mining-modal-content" show={showMining}>
+        <div className="modal-container mining-modal">
+          <Modal.Body className="mining-modal-body">
+            <img className="" src={miningGif} />
+          </Modal.Body>
+        </div>
+      </Modal>
+
       <Input onCreate={handleOnCreate} />
     </div>
   );
